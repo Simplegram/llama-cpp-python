@@ -161,7 +161,7 @@ class Llama:
             n_ubatch: Physical batch size
             n_threads: Number of threads to use for generation
             n_threads_batch: Number of threads to use for batch processing
-            rope_scaling_type: RoPE scaling type, from `enum llama_rope_scaling_type`. ref: https://github.com/ggerganov/llama.cpp/pull/2054
+            rope_scaling_type: RoPE scaling type, from `enum llama_rope_scaling_type`. ref: https://github.com/ggml-org/llama.cpp/pull/2054
             pooling_type: Pooling type, from `enum llama_pooling_type`.
             rope_freq_base: RoPE base frequency, 0 = from model
             rope_freq_scale: RoPE frequency scaling factor, 0 = from model
@@ -669,6 +669,7 @@ class Llama:
     def _init_sampler(
         self,
         top_k: int = 40,
+        top_n_sigma: float = -1.00,
         top_p: float = 0.95,
         min_p: float = 0.05,
         typical_p: float = 1.0,
@@ -676,10 +677,16 @@ class Llama:
         repeat_penalty: float = 1.0,
         frequency_penalty: float = 0.0,
         presence_penalty: float = 0.0,
-        tfs_z: float = 1.0,
         mirostat_mode: int = 0,
         mirostat_eta: float = 0.1,
         mirostat_tau: float = 5.0,
+        xtc_threshold: float = 0.1,
+        xtc_probability: float = 0.0,
+        dry_multiplier: float = 0.0,
+        dry_base: float = 1.75,
+        dry_allowed_length: int = 2,
+        dry_penalty_last_n:int = 0,
+        dry_seq_breakers: list[str] = ["\n", ":", "\"", "*"],
         penalize_nl: bool = True,
         logits_processor: Optional[LogitsProcessorList] = None,
         grammar: Optional[LlamaGrammar] = None,
@@ -749,15 +756,19 @@ class Llama:
                 min_keep = max(1, n_probs)
                 sampler.add_top_k(top_k)
                 sampler.add_typical(typical_p, min_keep)
+                sampler.add_top_n_sigma(top_n_sigma)
                 sampler.add_top_p(top_p, min_keep)
                 sampler.add_min_p(min_p, min_keep)
                 sampler.add_temp(temp)
                 sampler.add_dist(self._seed)
+                sampler.add_xtc(xtc_probability, xtc_threshold, min_keep, self._seed)
+                sampler.add_dry(self._model, dry_multiplier, dry_base, dry_allowed_length, dry_penalty_last_n, dry_seq_breakers)
         return sampler
 
     def sample(
         self,
         top_k: int = 40,
+        top_n_sigma: float = -1.00,
         top_p: float = 0.95,
         min_p: float = 0.05,
         typical_p: float = 1.0,
@@ -765,10 +776,16 @@ class Llama:
         repeat_penalty: float = 1.0,
         frequency_penalty: float = 0.0,
         presence_penalty: float = 0.0,
-        tfs_z: float = 1.0,
         mirostat_mode: int = 0,
         mirostat_eta: float = 0.1,
         mirostat_tau: float = 5.0,
+        xtc_threshold: float = 0.1,
+        xtc_probability: float = 0.0,
+        dry_multiplier: float = 0.0,
+        dry_base: float = 1.75,
+        dry_allowed_length: int = 2,
+        dry_penalty_last_n:int = 0,
+        dry_seq_breakers: list[str] = ["\n", ":", "\"", "*"],
         penalize_nl: bool = True,
         logits_processor: Optional[LogitsProcessorList] = None,
         grammar: Optional[LlamaGrammar] = None,
@@ -793,6 +810,7 @@ class Llama:
             tmp_sampler = True
             self._sampler = self._init_sampler(
                 top_k=top_k,
+                top_n_sigma=top_n_sigma,
                 top_p=top_p,
                 min_p=min_p,
                 typical_p=typical_p,
@@ -800,10 +818,16 @@ class Llama:
                 repeat_penalty=repeat_penalty,
                 frequency_penalty=frequency_penalty,
                 presence_penalty=presence_penalty,
-                tfs_z=tfs_z,
                 mirostat_mode=mirostat_mode,
                 mirostat_tau=mirostat_tau,
                 mirostat_eta=mirostat_eta,
+                xtc_threshold=xtc_threshold,
+                xtc_probability=xtc_probability,
+                dry_multiplier=dry_multiplier,
+                dry_base=dry_base,
+                dry_allowed_length=dry_allowed_length,
+                dry_penalty_last_n=dry_penalty_last_n,
+                dry_seq_breakers=dry_seq_breakers,
                 penalize_nl=penalize_nl,
                 logits_processor=logits_processor,
                 grammar=grammar,
@@ -821,6 +845,7 @@ class Llama:
         self,
         tokens: Sequence[int],
         top_k: int = 40,
+        top_n_sigma: float = -1.00,
         top_p: float = 0.95,
         min_p: float = 0.05,
         typical_p: float = 1.0,
@@ -829,10 +854,16 @@ class Llama:
         reset: bool = True,
         frequency_penalty: float = 0.0,
         presence_penalty: float = 0.0,
-        tfs_z: float = 1.0,
         mirostat_mode: int = 0,
         mirostat_tau: float = 5.0,
         mirostat_eta: float = 0.1,
+        xtc_threshold: float = 0.1,
+        xtc_probability: float = 0.0,
+        dry_multiplier: float = 0.0,
+        dry_base: float = 1.75,
+        dry_allowed_length: int = 2,
+        dry_penalty_last_n:int = 0,
+        dry_seq_breakers: list[str] = ["\n", ":", "\"", "*"],
         penalize_nl: bool = True,
         logits_processor: Optional[LogitsProcessorList] = None,
         stopping_criteria: Optional[StoppingCriteriaList] = None,
@@ -861,6 +892,7 @@ class Llama:
         self._mirostat_mu = ctypes.c_float(2.0 * mirostat_tau)
         self._sampler = self._init_sampler(
             top_k=top_k,
+            top_n_sigma=top_n_sigma,
             top_p=top_p,
             min_p=min_p,
             typical_p=typical_p,
@@ -868,10 +900,16 @@ class Llama:
             repeat_penalty=repeat_penalty,
             frequency_penalty=frequency_penalty,
             presence_penalty=presence_penalty,
-            tfs_z=tfs_z,
             mirostat_mode=mirostat_mode,
             mirostat_tau=mirostat_tau,
             mirostat_eta=mirostat_eta,
+            xtc_threshold=xtc_threshold,
+            xtc_probability=xtc_probability,
+            dry_multiplier=dry_multiplier,
+            dry_base=dry_base,
+            dry_allowed_length=dry_allowed_length,
+            dry_penalty_last_n=dry_penalty_last_n,
+            dry_seq_breakers=dry_seq_breakers,
             penalize_nl=penalize_nl,
             logits_processor=logits_processor,
             grammar=grammar,
@@ -913,6 +951,7 @@ class Llama:
             while sample_idx < self.n_tokens:
                 token = self.sample(
                     top_k=top_k,
+                    top_n_sigma=top_n_sigma,
                     top_p=top_p,
                     min_p=min_p,
                     typical_p=typical_p,
@@ -920,10 +959,16 @@ class Llama:
                     repeat_penalty=repeat_penalty,
                     frequency_penalty=frequency_penalty,
                     presence_penalty=presence_penalty,
-                    tfs_z=tfs_z,
                     mirostat_mode=mirostat_mode,
                     mirostat_tau=mirostat_tau,
                     mirostat_eta=mirostat_eta,
+                    xtc_threshold=xtc_threshold,
+                    xtc_probability=xtc_probability,
+                    dry_multiplier=dry_multiplier,
+                    dry_base=dry_base,
+                    dry_allowed_length=dry_allowed_length,
+                    dry_penalty_last_n=dry_penalty_last_n,
+                    dry_seq_breakers=dry_seq_breakers,
                     logits_processor=logits_processor,
                     grammar=grammar,
                     penalize_nl=penalize_nl,
@@ -1134,12 +1179,19 @@ class Llama:
         presence_penalty: float = 0.0,
         repeat_penalty: float = 1.0,
         top_k: int = 40,
+        top_n_sigma: float = -1.00,
         stream: bool = False,
         seed: Optional[int] = None,
-        tfs_z: float = 1.0,
         mirostat_mode: int = 0,
         mirostat_tau: float = 5.0,
         mirostat_eta: float = 0.1,
+        xtc_threshold: float = 0.1,
+        xtc_probability: float = 0.0,
+        dry_multiplier: float = 0.0,
+        dry_base: float = 1.75,
+        dry_allowed_length: int = 2,
+        dry_penalty_last_n:int = 0,
+        dry_seq_breakers: list[str] = ["\n", ":", "\"", "*"],
         model: Optional[str] = None,
         stopping_criteria: Optional[StoppingCriteriaList] = None,
         logits_processor: Optional[LogitsProcessorList] = None,
@@ -1320,14 +1372,21 @@ class Llama:
         for token in self.generate(
             prompt_tokens,
             top_k=top_k,
+            top_n_sigma=top_n_sigma,
             top_p=top_p,
             min_p=min_p,
             typical_p=typical_p,
             temp=temperature,
-            tfs_z=tfs_z,
             mirostat_mode=mirostat_mode,
             mirostat_tau=mirostat_tau,
             mirostat_eta=mirostat_eta,
+            xtc_threshold=xtc_threshold,
+            xtc_probability=xtc_probability,
+            dry_multiplier=dry_multiplier,
+            dry_base=dry_base,
+            dry_allowed_length=dry_allowed_length,
+            dry_penalty_last_n=dry_penalty_last_n,
+            dry_seq_breakers=dry_seq_breakers,
             frequency_penalty=frequency_penalty,
             presence_penalty=presence_penalty,
             repeat_penalty=repeat_penalty,
@@ -1754,12 +1813,19 @@ class Llama:
         presence_penalty: float = 0.0,
         repeat_penalty: float = 1.0,
         top_k: int = 40,
+        top_n_sigma: float = -1.00,
         stream: bool = False,
         seed: Optional[int] = None,
-        tfs_z: float = 1.0,
         mirostat_mode: int = 0,
         mirostat_tau: float = 5.0,
         mirostat_eta: float = 0.1,
+        xtc_threshold: float = 0.1,
+        xtc_probability: float = 0.0,
+        dry_multiplier: float = 0.0,
+        dry_base: float = 1.75,
+        dry_allowed_length: int = 2,
+        dry_penalty_last_n:int = 0,
+        dry_seq_breakers: list[str] = ["\n", ":", "\"", "*"],
         model: Optional[str] = None,
         stopping_criteria: Optional[StoppingCriteriaList] = None,
         logits_processor: Optional[LogitsProcessorList] = None,
@@ -1774,7 +1840,7 @@ class Llama:
             max_tokens: The maximum number of tokens to generate. If max_tokens <= 0 or None, the maximum number of tokens to generate is unlimited and depends on n_ctx.
             temperature: The temperature to use for sampling.
             top_p: The top-p value to use for nucleus sampling. Nucleus sampling described in academic paper "The Curious Case of Neural Text Degeneration" https://arxiv.org/abs/1904.09751
-            min_p: The min-p value to use for minimum p sampling. Minimum P sampling as described in https://github.com/ggerganov/llama.cpp/pull/3841
+            min_p: The min-p value to use for minimum p sampling. Minimum P sampling as described in https://github.com/ggml-org/llama.cpp/pull/3841
             typical_p: The typical-p value to use for sampling. Locally Typical Sampling implementation described in the paper https://arxiv.org/abs/2202.00666.
             logprobs: The number of logprobs to return. If None, no logprobs are returned.
             echo: Whether to echo the prompt.
@@ -1783,12 +1849,19 @@ class Llama:
             presence_penalty: The penalty to apply to tokens based on their presence in the prompt.
             repeat_penalty: The penalty to apply to repeated tokens.
             top_k: The top-k value to use for sampling. Top-K sampling described in academic paper "The Curious Case of Neural Text Degeneration" https://arxiv.org/abs/1904.09751
+            top_n_sigma: Limit the next token selection to a subset of tokens with pre-softmax logits that are within n * σ less than the max logit (default: -1.00, -1.00 = disabled).
             stream: Whether to stream the results.
             seed: The seed to use for sampling.
-            tfs_z: The tail-free sampling parameter. Tail Free Sampling described in https://www.trentonbricken.com/Tail-Free-Sampling/.
             mirostat_mode: The mirostat sampling mode.
             mirostat_tau: The target cross-entropy (or surprise) value you want to achieve for the generated text. A higher value corresponds to more surprising or less predictable text, while a lower value corresponds to less surprising or more predictable text.
             mirostat_eta: The learning rate used to update `mu` based on the error between the target and observed surprisal of the sampled word. A larger learning rate will cause `mu` to be updated more quickly, while a smaller learning rate will result in slower updates.
+            xtc-probability: Sets the chance for token removal (checked once on sampler start) (default: 0.0). XTC sampler as described in https://github.com/oobabooga/text-generation-webui/pull/6335
+            xtc-threshold: Sets a minimum probability threshold for tokens to be removed (default: 0.1). XTC sampler as described in https://github.com/oobabooga/text-generation-webui/pull/6335
+            dry_multiplier: Set the DRY (Don't Repeat Yourself) repetition penalty multiplier. Default: `0.0`, which is disabled.
+            dry_base`: Set the DRY repetition penalty base value. Default: `1.75`
+            dry_allowed_length: Tokens that extend repetition beyond this receive exponentially increasing penalty: multiplier * base ^ (length of repeating sequence before token - allowed length). Default: `2`
+            dry_penalty_last_n: How many tokens to scan for repetitions. Default: `0`, where `0` is disabled and `-1` is context size.
+            dry_seq_breakers: Specify an array of sequence breakers for DRY sampling. Only a JSON array of strings is accepted. Default: `['\n', ':', '"', '*']`
             model: The name to use for the model in the completion object.
             stopping_criteria: A list of stopping criteria to use.
             logits_processor: A list of logits processors to use.
@@ -1817,12 +1890,19 @@ class Llama:
             presence_penalty=presence_penalty,
             repeat_penalty=repeat_penalty,
             top_k=top_k,
+            top_n_sigma=top_n_sigma,
             stream=stream,
             seed=seed,
-            tfs_z=tfs_z,
             mirostat_mode=mirostat_mode,
             mirostat_tau=mirostat_tau,
             mirostat_eta=mirostat_eta,
+            xtc_threshold=xtc_threshold,
+            xtc_probability=xtc_probability,
+            dry_multiplier=dry_multiplier,
+            dry_base=dry_base,
+            dry_allowed_length=dry_allowed_length,
+            dry_penalty_last_n=dry_penalty_last_n,
+            dry_seq_breakers=dry_seq_breakers,
             model=model,
             stopping_criteria=stopping_criteria,
             logits_processor=logits_processor,
@@ -1851,12 +1931,19 @@ class Llama:
         presence_penalty: float = 0.0,
         repeat_penalty: float = 1.0,
         top_k: int = 40,
+        top_n_sigma: float = -1.00,
         stream: bool = False,
         seed: Optional[int] = None,
-        tfs_z: float = 1.0,
         mirostat_mode: int = 0,
         mirostat_tau: float = 5.0,
         mirostat_eta: float = 0.1,
+        xtc_threshold: float = 0.1,
+        xtc_probability: float = 0.0,
+        dry_multiplier: float = 0.0,
+        dry_base: float = 1.75,
+        dry_allowed_length: int = 2,
+        dry_penalty_last_n:int = 0,
+        dry_seq_breakers: list[str] = ["\n", ":", "\"", "*"],
         model: Optional[str] = None,
         stopping_criteria: Optional[StoppingCriteriaList] = None,
         logits_processor: Optional[LogitsProcessorList] = None,
@@ -1871,7 +1958,7 @@ class Llama:
             max_tokens: The maximum number of tokens to generate. If max_tokens <= 0 or None, the maximum number of tokens to generate is unlimited and depends on n_ctx.
             temperature: The temperature to use for sampling.
             top_p: The top-p value to use for nucleus sampling. Nucleus sampling described in academic paper "The Curious Case of Neural Text Degeneration" https://arxiv.org/abs/1904.09751
-            min_p: The min-p value to use for minimum p sampling. Minimum P sampling as described in https://github.com/ggerganov/llama.cpp/pull/3841
+            min_p: The min-p value to use for minimum p sampling. Minimum P sampling as described in https://github.com/ggml-org/llama.cpp/pull/3841
             typical_p: The typical-p value to use for sampling. Locally Typical Sampling implementation described in the paper https://arxiv.org/abs/2202.00666.
             logprobs: The number of logprobs to return. If None, no logprobs are returned.
             echo: Whether to echo the prompt.
@@ -1880,12 +1967,19 @@ class Llama:
             presence_penalty: The penalty to apply to tokens based on their presence in the prompt.
             repeat_penalty: The penalty to apply to repeated tokens.
             top_k: The top-k value to use for sampling. Top-K sampling described in academic paper "The Curious Case of Neural Text Degeneration" https://arxiv.org/abs/1904.09751
+            top_n_sigma: Limit the next token selection to a subset of tokens with pre-softmax logits that are within n * σ less than the max logit (default: -1.00, -1.00 = disabled).
             stream: Whether to stream the results.
             seed: The seed to use for sampling.
-            tfs_z: The tail-free sampling parameter. Tail Free Sampling described in https://www.trentonbricken.com/Tail-Free-Sampling/.
             mirostat_mode: The mirostat sampling mode.
             mirostat_tau: The target cross-entropy (or surprise) value you want to achieve for the generated text. A higher value corresponds to more surprising or less predictable text, while a lower value corresponds to less surprising or more predictable text.
             mirostat_eta: The learning rate used to update `mu` based on the error between the target and observed surprisal of the sampled word. A larger learning rate will cause `mu` to be updated more quickly, while a smaller learning rate will result in slower updates.
+            xtc-probability: Sets the chance for token removal (checked once on sampler start) (default: 0.0). XTC sampler as described in https://github.com/oobabooga/text-generation-webui/pull/6335
+            xtc-threshold: Sets a minimum probability threshold for tokens to be removed (default: 0.1). XTC sampler as described in https://github.com/oobabooga/text-generation-webui/pull/6335
+            dry_multiplier: Set the DRY (Don't Repeat Yourself) repetition penalty multiplier. Default: `0.0`, which is disabled.
+            dry_base`: Set the DRY repetition penalty base value. Default: `1.75`
+            dry_allowed_length: Tokens that extend repetition beyond this receive exponentially increasing penalty: multiplier * base ^ (length of repeating sequence before token - allowed length). Default: `2`
+            dry_penalty_last_n: How many tokens to scan for repetitions. Default: `0`, where `0` is disabled and `-1` is context size.
+            dry_seq_breakers: Specify an array of sequence breakers for DRY sampling. Only a JSON array of strings is accepted. Default: `['\n', ':', '"', '*']`
             model: The name to use for the model in the completion object.
             stopping_criteria: A list of stopping criteria to use.
             logits_processor: A list of logits processors to use.
@@ -1914,12 +2008,19 @@ class Llama:
             presence_penalty=presence_penalty,
             repeat_penalty=repeat_penalty,
             top_k=top_k,
+            top_n_sigma=top_n_sigma,
             stream=stream,
             seed=seed,
-            tfs_z=tfs_z,
             mirostat_mode=mirostat_mode,
             mirostat_tau=mirostat_tau,
             mirostat_eta=mirostat_eta,
+            xtc_threshold=xtc_threshold,
+            xtc_probability=xtc_probability,
+            dry_multiplier=dry_multiplier,
+            dry_base=dry_base,
+            dry_allowed_length=dry_allowed_length,
+            dry_penalty_last_n=dry_penalty_last_n,
+            dry_seq_breakers=dry_seq_breakers,
             model=model,
             stopping_criteria=stopping_criteria,
             logits_processor=logits_processor,
@@ -1937,6 +2038,7 @@ class Llama:
         temperature: float = 0.2,
         top_p: float = 0.95,
         top_k: int = 40,
+        top_n_sigma: float = -1.00,
         min_p: float = 0.05,
         typical_p: float = 1.0,
         stream: bool = False,
@@ -1947,10 +2049,16 @@ class Llama:
         presence_penalty: float = 0.0,
         frequency_penalty: float = 0.0,
         repeat_penalty: float = 1.0,
-        tfs_z: float = 1.0,
         mirostat_mode: int = 0,
         mirostat_tau: float = 5.0,
         mirostat_eta: float = 0.1,
+        xtc_threshold: float = 0.1,
+        xtc_probability: float = 0.0,
+        dry_multiplier: float = 0.0,
+        dry_base: float = 1.75,
+        dry_allowed_length: int = 2,
+        dry_penalty_last_n:int = 0,
+        dry_seq_breakers: list[str] = ["\n", ":", "\"", "*"],
         model: Optional[str] = None,
         logits_processor: Optional[LogitsProcessorList] = None,
         grammar: Optional[LlamaGrammar] = None,
@@ -1971,7 +2079,8 @@ class Llama:
             temperature: The temperature to use for sampling.
             top_p: The top-p value to use for nucleus sampling. Nucleus sampling described in academic paper "The Curious Case of Neural Text Degeneration" https://arxiv.org/abs/1904.09751
             top_k: The top-k value to use for sampling. Top-K sampling described in academic paper "The Curious Case of Neural Text Degeneration" https://arxiv.org/abs/1904.09751
-            min_p: The min-p value to use for minimum p sampling. Minimum P sampling as described in https://github.com/ggerganov/llama.cpp/pull/3841
+            top_n_sigma: Limit the next token selection to a subset of tokens with pre-softmax logits that are within n * σ less than the max logit (default: -1.00, -1.00 = disabled).
+            min_p: The min-p value to use for minimum p sampling. Minimum P sampling as described in https://github.com/ggml-org/llama.cpp/pull/3841
             typical_p: The typical-p value to use for sampling. Locally Typical Sampling implementation described in the paper https://arxiv.org/abs/2202.00666.
             stream: Whether to stream the results.
             stop: A list of strings to stop generation when encountered.
@@ -1981,10 +2090,16 @@ class Llama:
             presence_penalty: The penalty to apply to tokens based on their presence in the prompt.
             frequency_penalty: The penalty to apply to tokens based on their frequency in the prompt.
             repeat_penalty: The penalty to apply to repeated tokens.
-            tfs_z: The tail-free sampling parameter.
             mirostat_mode: The mirostat sampling mode.
             mirostat_tau: The mirostat sampling tau parameter.
             mirostat_eta: The mirostat sampling eta parameter.
+            xtc-probability: Sets the chance for token removal (checked once on sampler start) (default: 0.0). XTC sampler as described in https://github.com/oobabooga/text-generation-webui/pull/6335
+            xtc-threshold: Sets a minimum probability threshold for tokens to be removed (default: 0.1).XTC sampler as described in https://github.com/oobabooga/text-generation-webui/pull/6335
+            dry_multiplier: Set the DRY (Don't Repeat Yourself) repetition penalty multiplier. Default: `0.0`, which is disabled.
+            dry_base`: Set the DRY repetition penalty base value. Default: `1.75`
+            dry_allowed_length: Tokens that extend repetition beyond this receive exponentially increasing penalty: multiplier * base ^ (length of repeating sequence before token - allowed length). Default: `2`
+            dry_penalty_last_n: How many tokens to scan for repetitions. Default: `0`, where `0` is disabled and `-1` is context size.
+            dry_seq_breakers: Specify an array of sequence breakers for DRY sampling. Only a JSON array of strings is accepted. Default: `['\n', ':', '"', '*']`
             model: The name to use for the model in the completion object.
             logits_processor: A list of logits processors to use.
             grammar: A grammar to use.
@@ -2008,6 +2123,7 @@ class Llama:
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            top_n_sigma=top_n_sigma,
             min_p=min_p,
             typical_p=typical_p,
             logprobs=logprobs,
@@ -2020,10 +2136,16 @@ class Llama:
             presence_penalty=presence_penalty,
             frequency_penalty=frequency_penalty,
             repeat_penalty=repeat_penalty,
-            tfs_z=tfs_z,
             mirostat_mode=mirostat_mode,
             mirostat_tau=mirostat_tau,
             mirostat_eta=mirostat_eta,
+            xtc_threshold=xtc_threshold,
+            xtc_probability=xtc_probability,
+            dry_multiplier=dry_multiplier,
+            dry_base=dry_base,
+            dry_allowed_length=dry_allowed_length,
+            dry_penalty_last_n=dry_penalty_last_n,
+            dry_seq_breakers=dry_seq_breakers,
             model=model,
             logits_processor=logits_processor,
             grammar=grammar,
@@ -2172,6 +2294,10 @@ class Llama:
     def n_embd(self) -> int:
         """Return the embedding size."""
         return self._model.n_embd()
+
+    def n_head_kv(self) -> int:
+        """Return the head_kv size."""
+        return self._model.n_head_kv()
 
     def n_vocab(self) -> int:
         """Return the vocabulary size."""

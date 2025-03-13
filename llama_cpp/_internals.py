@@ -89,6 +89,12 @@ class LlamaModel:
     def n_embd(self) -> int:
         return llama_cpp.llama_n_embd(self.model)
 
+    def n_head_kv(self) -> int:
+        return llama_cpp.llama_model_n_head_kv(self.model)
+
+    def n_params(self) -> int:
+        return llama_cpp.llama_model_n_params(self.model)
+
     def rope_freq_scale_train(self) -> float:
         return llama_cpp.llama_model_rope_freq_scale_train(self.model)
 
@@ -99,9 +105,6 @@ class LlamaModel:
 
     def size(self) -> int:
         return llama_cpp.llama_model_size(self.model)
-
-    def n_params(self) -> int:
-        return llama_cpp.llama_model_n_params(self.model)
 
     def get_tensor(self, name: str) -> ctypes.c_void_p:
         raise NotImplementedError("get_tensor is not implemented in llama.cpp")
@@ -567,9 +570,9 @@ class LlamaSamplingParams:
     n_prev: int = 64
     n_probs: int = 0
     top_k: int = 40
+    top_n_sigma: float = -1.00
     top_p: float = 0.95
     min_p: float = 0.05
-    tfs_z: float = 1.00
     typical_p: float = 1.00
     temp: float = 0.80
     penalty_last_n: int = 64
@@ -580,6 +583,9 @@ class LlamaSamplingParams:
     mirostat_tau: float = 5.00
     mirostat_eta: float = 0.10
     penalize_nl: bool = True
+
+    xtc_threshold: float = 0.1
+    xtc_probability: float = 0.0
 
     grammar: str = ""
 
@@ -724,7 +730,7 @@ import llama_cpp
 
 class CustomSampler:
     def __init__(
-        self, apply_func: typing.Callable[[llama_cpp.llama_token_data_array], None]
+        self, apply_func: Callable[[llama_cpp.llama_token_data_array], None]
     ):
         self.apply_func = apply_func
 
@@ -747,9 +753,7 @@ class CustomSampler:
         sampler_i.clone = llama_cpp.llama_sampler_i_clone(0)
         sampler_i.free = llama_cpp.llama_sampler_i_free(0)
 
-        self.sampler = llama_cpp.llama_sampler()
-        self.sampler.iface = ctypes.pointer(sampler_i)
-        self.sampler.ctx = None
+        self.sampler = llama_cpp.llama_sampler_init(ctypes.pointer(sampler_i), None)
 
     def get_sampler(self) -> llama_cpp.llama_sampler_p:
         return ctypes.pointer(self.sampler)
@@ -790,12 +794,20 @@ class LlamaSampler:
         sampler = llama_cpp.llama_sampler_init_typical(p, min_keep)
         self._add_sampler(sampler)
 
+    def add_xtc(self, p: float, t: float, min_keep: int, seed: int):
+        sampler = llama_cpp.llama_sampler_init_xtc(p, t, min_keep, seed)
+        self._add_sampler(sampler)
+
     def add_temp(self, temp: float):
         sampler = llama_cpp.llama_sampler_init_temp(temp)
         self._add_sampler(sampler)
 
     def add_temp_ext(self, t: float, delta: float, exponent: float):
         sampler = llama_cpp.llama_sampler_init_temp_ext(t, delta, exponent)
+        self._add_sampler(sampler)
+
+    def add_top_n_sigma(self, n: float):
+        sampler = llama_cpp.llama_sampler_init_top_n_sigma(n)
         self._add_sampler(sampler)
 
     def add_mirostat(self, n_vocab: int, seed: int, tau: float, eta: float, m: int):
@@ -811,6 +823,85 @@ class LlamaSampler:
             model.vocab, grammar._grammar.encode("utf-8"), grammar._root.encode("utf-8")
         )
         self._add_sampler(sampler)
+
+    def convert_list_str_to_char_array_ptr(self, str_list: List[str]):
+        """
+        Converts a list of strings to a char** array for C interop, and returns two values:
+        the char** array and the number of bytes in the list.
+
+        Args:
+            str_list: List of string objects.
+
+        Returns:
+            - A ctypes pointer to a char** array.
+            - The number of strings in the input list.
+        """
+        # Encode strings to bytes
+        byte_list = [s.encode('utf-8') for s in str_list]
+        # Calculate the number of breakers
+        num_byte_list= len(byte_list)
+        # Define the type of a char pointer
+        char_ptr_type = ctypes.POINTER(ctypes.c_char)
+        # Define the type of an array of char pointers
+        char_ptr_array_type = char_ptr_type * num_byte_list
+
+        # Allocate memory for the array of char pointers
+        char_ptr_array = char_ptr_array_type()
+
+        # Populate the array with pointers to the byte strings
+        for i, byte_string in enumerate(byte_list):
+            # Create a null-terminated C-style string buffer
+            c_char_array = ctypes.create_string_buffer(byte_string)
+            # Cast the buffer to a char pointer and assign it to the array
+            char_ptr_array[i] = ctypes.cast(c_char_array, char_ptr_type)
+
+        char_array_ptr = ctypes.cast(char_ptr_array, ctypes.POINTER(char_ptr_type))
+
+        # Return the char** pointer and the number of strings
+        return char_array_ptr, num_byte_list
+
+    def add_grammar_lazy(
+            self,
+            model: LlamaModel,
+            grammar: LlamaGrammar,
+            trigger_tokens:list[llama_cpp.llama_token],
+            num_trigger_tokens: int,
+            trigger_words: list[str]=[]
+        ):
+        trigger_words_char_array_ptr, num_trigger_words = self.convert_list_str_to_char_array_ptr(trigger_words)
+
+        sampler = llama_cpp.llama_sampler_init_grammar_lazy(
+            model.vocab,
+            grammar._grammar.encode("utf-8"),
+            grammar._root.encode("utf-8"),
+            trigger_words_char_array_ptr,
+            num_trigger_words,
+            trigger_tokens,
+            num_trigger_tokens
+        )
+        self._add_sampler(sampler)
+
+    def add_grammar_lazy_patterns(
+            self,
+            model: LlamaModel,
+            grammar: LlamaGrammar,
+            num_trigger_patterns: int,
+            trigger_tokens:list[llama_cpp.llama_token],
+            num_trigger_tokens: int,
+            trigger_patterns: list[str]=[]
+        ):
+        trigger_patterns_char_array_ptr, num_trigger_patterns = self.convert_list_str_to_char_array_ptr(trigger_patterns)
+        sampler = llama_cpp.llama_sampler_init_grammar_lazy_patterns(
+            model.vocab,
+            grammar._grammar.encode("utf-8"),
+            grammar._root.encode("utf-8"),
+            trigger_patterns_char_array_ptr,
+            num_trigger_patterns,
+            trigger_tokens,
+            num_trigger_tokens
+        )
+        self._add_sampler(sampler)
+
 
     def add_penalties(
         self,
@@ -829,6 +920,30 @@ class LlamaSampler:
             penalty_repeat,
             penalty_freq,
             penalty_present,
+        )
+        self._add_sampler(sampler)
+
+    def add_dry(
+        self,
+        model: LlamaModel,
+        dry_multiplier: float,
+        dry_base: float,
+        dry_allowed_length: int,
+        dry_penalty_last_n: int,
+        dry_seq_breakers: list[str] = ["\n", ":", "\"", "*"]
+    ):
+
+        dry_seq_breakers_char_array_ptr, num_seq_breakers = self.convert_list_str_to_char_array_ptr(dry_seq_breakers)
+
+        sampler = llama_cpp.llama_sampler_init_dry(
+            model.vocab,
+            model.n_ctx_train(),
+            dry_multiplier,
+            dry_base,
+            dry_allowed_length,
+            dry_penalty_last_n,
+            dry_seq_breakers_char_array_ptr,
+            num_seq_breakers
         )
         self._add_sampler(sampler)
 

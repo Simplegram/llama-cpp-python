@@ -73,7 +73,10 @@ ctypes_function = ctypes_function_for_shared_library(_lib)
 #     GGML_TYPE_I64     = 27,
 #     GGML_TYPE_F64     = 28,
 #     GGML_TYPE_IQ1_M   = 29,
-#     GGML_TYPE_COUNT,
+#     GGML_TYPE_BF16    = 30,
+#     GGML_TYPE_TQ1_0   = 34,
+#     GGML_TYPE_TQ2_0   = 35,
+#     GGML_TYPE_COUNT   = 39
 # };
 GGML_TYPE_F32 = 0
 GGML_TYPE_F16 = 1
@@ -103,7 +106,10 @@ GGML_TYPE_I32 = 26
 GGML_TYPE_I64 = 27
 GGML_TYPE_F64 = 28
 GGML_TYPE_IQ1_M = 29
-GGML_TYPE_COUNT = 30
+GGML_TYPE_BF16 = 30
+GGML_TYPE_TQ1_0 = 34
+GGML_TYPE_TQ2_0 = 35
+GGML_TYPE_COUNT = 39
 
 # from ggml-backend.h
 # typedef bool (*ggml_backend_sched_eval_callback)(struct ggml_tensor * t, bool ask, void * user_data);
@@ -1146,7 +1152,7 @@ def llama_model_load_from_file(
     llama_model_p_ctypes,
 )
 def llama_model_load_from_splits(
-    paths: List[bytes], n_paths: int, params: llama_model_params, /
+    paths: list[bytes], n_paths: int, params: llama_model_params, /
 ) -> Optional[llama_model_p]:
     """Load the model from multiple splits (support custom naming scheme)
 
@@ -3793,7 +3799,7 @@ def llama_sampler_init_penalties(
         ctypes.c_float,
         ctypes.c_int32,
         ctypes.c_int32,
-        ctypes.POINTER(ctypes.c_char_p),
+        ctypes.POINTER(ctypes.POINTER(ctypes.c_char)),
         ctypes.c_size_t,
     ],
     llama_sampler_p_ctypes,
@@ -3805,7 +3811,7 @@ def llama_sampler_init_dry(
     dry_base: float,
     dry_allowed_length: int,
     dry_penalty_last_n: int,
-    seq_breakers,
+    seq_breakers: CtypesArray[bytes],
     num_breakers: int,
     /,
 ) -> llama_sampler_p:
