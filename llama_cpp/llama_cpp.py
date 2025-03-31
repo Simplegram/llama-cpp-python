@@ -239,6 +239,8 @@ LLAMA_VOCAB_TYPE_RWKV = 5
 #     LLAMA_VOCAB_PRE_TYPE_DEEPSEEK3_LLM  = 28,
 #     LLAMA_VOCAB_PRE_TYPE_GPT4O          = 29,
 #     LLAMA_VOCAB_PRE_TYPE_SUPERBPE       = 30,
+#     LLAMA_VOCAB_PRE_TYPE_TRILLION       = 31,
+#     LLAMA_VOCAB_PRE_TYPE_BAILINGMOE     = 32,
 # };
 LLAMA_VOCAB_PRE_TYPE_DEFAULT = 0
 LLAMA_VOCAB_PRE_TYPE_LLAMA3 = 1
@@ -271,6 +273,8 @@ LLAMA_VOCAB_PRE_TYPE_MINERVA = 27
 LLAMA_VOCAB_PRE_TYPE_DEEPSEEK3_LLM = 28
 LLAMA_VOCAB_PRE_TYPE_GPT4O = 29
 LLAMA_VOCAB_PRE_TYPE_SUPERBPE = 30
+LLAMA_VOCAB_PRE_TYPE_TRILLION = 31
+LLAMA_VOCAB_PRE_TYPE_BAILINGMOE = 32
 
 
 # // note: these values should be synchronized with ggml_rope
@@ -3906,6 +3910,10 @@ def llama_sampler_init_mirostat_v2(
     ...
 
 
+# /// @details Intializes a GBNF grammar, see grammars/README.md for details.
+# /// @param vocab The vocabulary that this grammar will be used with.
+# /// @param grammar_str The production rules for the grammar, encoded as a string. Returns an empty grammar if empty. Returns NULL if parsing of grammar_str fails.
+# /// @param grammar_root The name of the start symbol for the grammar.
 # LLAMA_API struct llama_sampler * llama_sampler_init_grammar(
 #         const struct llama_vocab * vocab,
 #                       const char * grammar_str,
