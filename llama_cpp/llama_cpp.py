@@ -645,11 +645,27 @@ class llama_model_kv_override(ctypes.Structure):
         key: bytes
         value: Union[int, float, bool, bytes]
 
+# struct llama_model_tensor_buft_override {
+#     const char * pattern;
+#     ggml_backend_buffer_type_t buft;
+# };
+class llama_model_tensor_buft_override(ctypes.Structure):
+    _fields_ = [
+        ("pattern", ctypes.c_char_p),
+        ("buft", ctypes.c_void_p),
+    ]
+
+    if TYPE_CHECKING:
+        pattern: ctypes.c_char_p
+        buft: ctypes.c_void_p
 
 # struct llama_model_params {
 #     // NULL-terminated list of devices to use for offloading (if NULL, all available devices are used)
 #     ggml_backend_dev_t * devices;
-
+#
+#     // NULL-terminated list of buffer types to use for tensors that match a pattern
+#     const struct llama_model_tensor_buft_override * tensor_buft_overrides;
+#
 #     int32_t n_gpu_layers; // number of layers to store in VRAM
 #     enum llama_split_mode split_mode; // how to split the model across multiple GPUs
 
@@ -684,6 +700,7 @@ class llama_model_params(ctypes.Structure):
     """Parameters for llama_model
 
     Attributes:
+        tensor_buft_overrides(llama_model_tensor_buft_override): NULL-terminated list of buffer types to use for tensors that match a pattern
         n_gpu_layers (int): number of layers to store in VRAM
         split_mode (int): how to split the model across multiple GPUs
         main_gpu (int): the GPU that is used for the entire model. main_gpu interpretation depends on split_mode: LLAMA_SPLIT_NONE: the GPU that is used for the entire model LLAMA_SPLIT_ROW: the GPU that is used for small tensors and intermediate results LLAMA_SPLIT_LAYER: ignored
@@ -697,6 +714,7 @@ class llama_model_params(ctypes.Structure):
         check_tensors (bool): validate model tensor data"""
 
     if TYPE_CHECKING:
+        tensor_buft_overrides: ctypes.POINTER(llama_model_tensor_buft_override)
         n_gpu_layers: int
         split_mode: int
         main_gpu: int
@@ -711,6 +729,7 @@ class llama_model_params(ctypes.Structure):
 
     _fields_ = [
         ("devices", ctypes.c_void_p), # NOTE: unnused
+        ("tensor_buft_overrides", ctypes.POINTER(llama_model_tensor_buft_override)),
         ("n_gpu_layers", ctypes.c_int32),
         ("split_mode", ctypes.c_int),
         ("main_gpu", ctypes.c_int32),
