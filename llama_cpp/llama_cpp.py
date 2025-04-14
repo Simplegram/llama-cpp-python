@@ -702,6 +702,7 @@ class llama_model_params(ctypes.Structure):
     """Parameters for llama_model
 
     Attributes:
+        devices (ctypes.Array[ggml_backend_dev_t]): NULL-terminated list of devices to use for offloading (if NULL, all available devices are used)
         tensor_buft_overrides(llama_model_tensor_buft_override): NULL-terminated list of buffer types to use for tensors that match a pattern
         n_gpu_layers (int): number of layers to store in VRAM
         split_mode (int): how to split the model across multiple GPUs
@@ -716,6 +717,7 @@ class llama_model_params(ctypes.Structure):
         check_tensors (bool): validate model tensor data"""
 
     if TYPE_CHECKING:
+        devices: CtypesArray[ctypes.c_void_p]  # NOTE: unused
         tensor_buft_overrides: ctypes.POINTER(llama_model_tensor_buft_override)
         n_gpu_layers: int
         split_mode: int
@@ -915,6 +917,7 @@ It might not exist for progress report where '.' is output repeatedly."""
 #     bool keep_split;                     // quantize to the same number of shards
 #     void * imatrix;                      // pointer to importance matrix data
 #     void * kv_overrides;                 // pointer to vector containing overrides
+#     void * tensor_types;                 // pointer to vector containing tensor types
 # } llama_model_quantize_params;
 class llama_model_quantize_params(ctypes.Structure):
     """Parameters for llama_model_quantize
@@ -931,6 +934,7 @@ class llama_model_quantize_params(ctypes.Structure):
         keep_split (bool): quantize to the same number of shards
         imatrix (ctypes.c_void_p): pointer to importance matrix data
         kv_overrides (ctypes.c_void_p): pointer to vector containing overrides
+        tensor_types (ctypes.c_void_p): pointer to vector containing tensor types
     """
 
     if TYPE_CHECKING:
@@ -945,6 +949,7 @@ class llama_model_quantize_params(ctypes.Structure):
         keep_split: bool
         imatrix: ctypes.c_void_p
         kv_overrides: ctypes.c_void_p
+        tensor_types: ctypes.c_void_p
 
     _fields_ = [
         ("nthread", ctypes.c_int32),
@@ -958,6 +963,7 @@ class llama_model_quantize_params(ctypes.Structure):
         ("keep_split", ctypes.c_bool),
         ("imatrix", ctypes.c_void_p),
         ("kv_overrides", ctypes.c_void_p),
+        ("tensor_types", ctypes.c_void_p),
     ]
 
 
