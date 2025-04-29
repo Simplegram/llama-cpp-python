@@ -73,6 +73,10 @@ jobs:
         with:
           python-version: ${{ matrix.pyver }}
 
+      - name: Setup uv venv
+        run: |
+          uv venv
+
       - name: Install Dependencies
         run: |
           git config --system core.longpaths true
