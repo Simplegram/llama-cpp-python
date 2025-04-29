@@ -756,7 +756,7 @@ class CustomSampler:
         self.sampler = llama_cpp.llama_sampler_init(ctypes.pointer(sampler_i), None)
 
     def get_sampler(self) -> llama_cpp.llama_sampler_p:
-        return ctypes.pointer(self.sampler)
+        return self.sampler
 
 
 class LlamaSampler:
